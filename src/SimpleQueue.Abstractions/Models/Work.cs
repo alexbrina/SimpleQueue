@@ -28,17 +28,17 @@ namespace SimpleQueue.Abstractions.Models
 
         public bool Attempted => Attempts > 0;
 
-        internal void SetCompleted()
+        public void SetCompleted()
         {
             CompletedAt = DateTimeOffset.Now;
         }
 
-        internal void SetPending()
+        public void SetPending()
         {
             CompletedAt = default;
         }
 
-        internal void IncreaseAttempts()
+        public void IncreaseAttempts()
         {
             Attempts++;
         }
