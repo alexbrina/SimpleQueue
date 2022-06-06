@@ -1,0 +1,54 @@
+# To learn more about .editorconfig see https://aka.ms/editorconfigdocs
+# top-most EditorConfig file
+root = true
+
+###############################
+# Core EditorConfig Options   #
+###############################
+# All files
+[*]
+indent_style = space
+
+# XML project files
+[*.{csproj,vbproj,vcxproj,vcxproj.filters,proj,projitems,shproj}]
+indent_size = 2
+
+# XML config files
+[*.{props,targets,ruleset,config,nuspec,resx,vsixmanifest,vsct}]
+indent_size = 2
+
+# Code files
+[*.{cs,csx,vb,vbx}]
+indent_size = 4
+insert_final_newline = true
+charset = utf-8-bom
+trim_trailing_whitespace = true
+
+# NOTE: Requires **VS2019 16.3** or later
+
+# Microsoft Managed Recommended Rules
+# Description: These rules focus on the most critical problems in your code, including potential security holes, application crashes, and other important logic and design errors. It is recommended to include this rule set in any custom rule set you create for your projects.
+
+# Code files
+[*.{cs,vb}]
+
+# AsyncFixer01: Unnecessary async/await usage
+dotnet_diagnostic.AsyncFixer01.severity = silent
+
+# CA1001: Types that own disposable fields should be disposable
+dotnet_diagnostic.CA1001.severity = warning
+
+# CA1061: Do not hide base class methods
+dotnet_diagnostic.CA1061.severity = warning
+
+# CA1000: Do not declare static members on generic types
+dotnet_diagnostic.CA1000.severity = suggestion
+
+# CA1005: Avoid excessive parameters on generic types
+dotnet_diagnostic.CA1005.severity = suggestion
+
+# CA1012: Abstract types should not have public constructors
+dotnet_diagnostic.CA1012.severity = warning
+
+# S1172: Unused method parameters should be removed
+dotnet_diagnostic.S1172.severity = silent

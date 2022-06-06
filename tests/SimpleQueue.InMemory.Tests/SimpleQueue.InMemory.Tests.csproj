@@ -2,7 +2,6 @@
 
   <PropertyGroup>
     <TargetFramework>net5.0</TargetFramework>
-
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
@@ -22,7 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\SimpleQueue.InMemory\SimpleQueue.InMemory.csproj" />
+    <ProjectReference Include="..\..\src\SimpleQueue.InMemory\SimpleQueue.InMemory.csproj" />
   </ItemGroup>
 
 </Project>
