@@ -5,20 +5,24 @@ using System.Collections.Concurrent;
 
 namespace SimpleQueue.InMemory
 {
-    internal class WorkerContext
+    internal class ConsumerContext<T>
+        where T : ISimpleQueueWorker
     {
         public BlockingCollection<Work> Queue { get; private set; }
-        public ISimpleQueueWorker Worker { get; private set; }
         public int MaxAttempts { get; private set; }
+        public int ConsumerId { get; private set; }
+        public Action<T> ConfigureWorker { get; private set; }
 
-        public WorkerContext(
+        public ConsumerContext(
             BlockingCollection<Work> queue,
-            ISimpleQueueWorker worker,
-            int maxAttempts)
+            int maxAttempts,
+            int consumerId,
+            Action<T> configureWorker)
         {
             Queue = queue ?? throw new ArgumentNullException(nameof(queue));
-            Worker = worker ?? throw new ArgumentNullException(nameof(worker));
             MaxAttempts = maxAttempts;
+            ConsumerId = consumerId;
+            ConfigureWorker = configureWorker;
         }
     }
 }

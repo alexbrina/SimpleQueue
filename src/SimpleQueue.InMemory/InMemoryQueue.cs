@@ -11,12 +11,14 @@ using System.Threading.Tasks;
 
 namespace SimpleQueue.InMemory
 {
-    public sealed class InMemoryQueue : ISimpleQueue
+    public sealed class InMemoryQueue : ISimpleQueue, IDisposable
     {
         private readonly IServiceProvider serviceProvider;
-        private readonly BlockingCollection<Work> queue;
         private readonly ILogger<InMemoryQueue> logger;
-        private int workers = 0;
+
+        private readonly BlockingCollection<Work> queue;
+
+        private int consumers = 0;
         private int requeuing = 0;
 
         public InMemoryQueue(IServiceProvider serviceProvider)
@@ -25,6 +27,7 @@ namespace SimpleQueue.InMemory
                 ?? throw new ArgumentNullException(nameof(serviceProvider));
 
             logger = serviceProvider.GetRequiredService<ILogger<InMemoryQueue>>();
+
             queue = new BlockingCollection<Work>();
         }
 
@@ -45,7 +48,7 @@ namespace SimpleQueue.InMemory
             foreach (var work in works)
             {
                 // we check if work is already in queue but we won't bother
-                // to prevent that some pending work was done between
+                // preventing that some pending work was done between
                 // retrieving and requeuing, this should be checked in workers
                 // before work execution
                 if (!queue.Any(i => i.Id == work.Id))
@@ -63,29 +66,33 @@ namespace SimpleQueue.InMemory
             Interlocked.Exchange(ref requeuing, 0);
         }
 
-        public void Consume(ISimpleQueueWorker worker, int maxAttempts,
+        public void Consume<T>(
+            int maxAttempts,
+            Action<T> configureWorker,
             CancellationToken cancellationToken)
+            where T : ISimpleQueueWorker
         {
-            var id = Interlocked.Increment(ref workers);
+            var id = Interlocked.Increment(ref consumers);
 
             if (logger.IsEnabled(LogLevel.Debug))
-                logger.LogDebug($"{nameof(InMemoryQueue)} is starting worker {id}.");
+                logger.LogDebug($"{nameof(InMemoryQueue)} is starting consumer {id}.");
 
-            // one separated task for each consumer
-            Task.Factory.StartNew(async () =>
+            // We start a dedicated background thread for each comsumer.
+            var thread = new Thread(() =>
             {
-                await serviceProvider.GetRequiredService<Consumer>()
-                    .Execute(id, new WorkerContext(queue, worker, maxAttempts), cancellationToken);
-            }, cancellationToken);
-        }
-
-        public void Consume(ISimpleQueueWorker worker, int maxAttempts, int workerReplicas,
-            CancellationToken cancellationToken)
-        {
-            for (int i = 0; i < workerReplicas; i++)
+                // Worker instance can run tasks asynchronously.
+                // Consumer thread will block waiting until it has finished.
+                _ = Task.Factory.StartNew(async () =>
+                  {
+                      var consumer = serviceProvider.GetRequiredService<Consumer>();
+                      var context = new ConsumerContext<T>(queue, maxAttempts, id, configureWorker);
+                      await consumer.Execute<T>(context, serviceProvider, cancellationToken);
+                  }).GetAwaiter().GetResult();
+            })
             {
-                Consume(worker, maxAttempts, cancellationToken);
-            }
+                IsBackground = true
+            };
+            thread.Start();
         }
 
         public int Count => queue.Count;

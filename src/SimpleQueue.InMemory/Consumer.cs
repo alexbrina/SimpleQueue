@@ -1,7 +1,10 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using SimpleQueue.Abstractions;
 using SimpleQueue.Abstractions.Exceptions;
 using SimpleQueue.Abstractions.Models;
 using System;
+using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -18,30 +21,45 @@ namespace SimpleQueue.InMemory
                 ?? throw new ArgumentNullException(nameof(logger));
         }
 
-        public async Task Execute(int consumerId, WorkerContext context,
+        public async Task Execute<T>(
+            ConsumerContext<T> context,
+            IServiceProvider serviceProvider,
             CancellationToken cancellationToken)
+            where T : ISimpleQueueWorker
         {
-            this.consumerId = consumerId;
+            this.consumerId = context.ConsumerId;
 
             if (logger.IsEnabled(LogLevel.Debug))
-                logger.LogDebug($"Consumer {consumerId} is starting");
+                logger.LogDebug($"Consumer {consumerId} has started");
 
             foreach (var work in context.Queue.GetConsumingEnumerable(cancellationToken))
             {
-                await Execute(work, context, cancellationToken);
+                // When some work is available, we create a new scope and ask
+                // service provider for a Worker instance (and its dependencies).
+                // This scope is valid for this work execution only.
+                using var scope = serviceProvider.CreateScope();
+                var worker = scope.ServiceProvider.GetRequiredService<T>();
+                context.ConfigureWorker?.Invoke(worker);
+                await Execute(work, worker, context.Queue, context.MaxAttempts, cancellationToken);
             }
 
             if (logger.IsEnabled(LogLevel.Debug))
                 logger.LogDebug($"Consumer {consumerId} has exited");
         }
 
-        private async Task Execute(Work work, WorkerContext context,
+        private async Task Execute(
+            Work work,
+            ISimpleQueueWorker worker,
+            BlockingCollection<Work> queue,
+            int maxAttempts,
             CancellationToken cancellationToken)
         {
-            // WARNING: consumer thread dies without notice if an exception bubbles up
+            // We catch whatever exception occured while attempting to
+            // execute work and handle it. Note that consumer dedicated thread
+            // dies if an exception bubbles up.
             try
             {
-                await Attempt(work, context, cancellationToken);
+                await Attempt(work, worker, queue, cancellationToken);
             }
             catch (WorkIsMissingException ex)
             {
@@ -54,11 +72,14 @@ namespace SimpleQueue.InMemory
             }
             catch (Exception ex)
             {
-                HandleFailure(work, context, ex);
+                HandleFailure(work, queue, maxAttempts, ex);
             }
         }
 
-        private async Task Attempt(Work work, WorkerContext context,
+        private async Task Attempt(
+            Work work,
+            ISimpleQueueWorker worker,
+            BlockingCollection<Work> queue,
             CancellationToken cancellationToken)
         {
             var action = work.Attempted ? "retrying" : "processing";
@@ -68,18 +89,23 @@ namespace SimpleQueue.InMemory
             if (logger.IsEnabled(LogLevel.Debug))
                 logger.LogDebug($"Consumer {consumerId} is {action} Work {work.Id}" +
                     $" with data {work.Data}, attempt {work.Attempts}. " +
-                    $"{context.Queue.Count} work(s) remaining in queue.");
+                    $"{queue.Count} work(s) remaining in queue.");
 
             work.SetCompleted();
-            await context.Worker.Execute(work, cancellationToken);
+
+            await worker.Execute(work, cancellationToken);
         }
 
-        private void HandleFailure(Work work, WorkerContext context, Exception ex)
+        private void HandleFailure(
+            Work work,
+            BlockingCollection<Work> queue,
+            int maxAttempts,
+            Exception ex)
         {
             logger.LogError(ex, $"Consumer {consumerId} failed to " +
                 $"process work {work.Id} with data {work.Data}!");
 
-            if (work.Attempts < context.MaxAttempts)
+            if (work.Attempts < maxAttempts)
             {
                 // put it back in queue
                 if (logger.IsEnabled(LogLevel.Debug))
@@ -87,13 +113,14 @@ namespace SimpleQueue.InMemory
                         $" back in queue for retry");
 
                 work.SetPending();
-                context.Queue.Add(work);
+
+                queue.Add(work);
             }
             else
             {
-                // too many attempts, work was discarded
+                // too many attempts, work is discarded
                 logger.LogWarning($"Work {work.Id} with data {work.Data} has " +
-                    $"reached max of {context.MaxAttempts} " +
+                    $"reached max of {maxAttempts} " +
                     $"failed attempts and was discarded.");
             }
         }

@@ -11,11 +11,11 @@ namespace SimpleQueue.Abstractions
 
         void Requeue(IEnumerable<Work> works);
 
-        void Consume(ISimpleQueueWorker worker, int maxAttempts,
-            CancellationToken cancellationToken);
-
-        void Consume(ISimpleQueueWorker worker, int maxAttempts, int workerReplicas,
-            CancellationToken cancellationToken);
+        void Consume<T>(
+            int maxAttempts,
+            Action<T> configureWorker,
+            CancellationToken cancellationToken)
+            where T : ISimpleQueueWorker;
 
         int Count { get; }
     }

@@ -16,10 +16,7 @@ namespace Microsoft.Extensions.DependencyInjection
             }
 
             services.AddTransient<Consumer>();
-
-            // this allows client applications to register ISimpleQueue
-            // with different life time
-            services.TryAddTransient<ISimpleQueue, InMemoryQueue>();
+            services.AddTransient<ISimpleQueue, InMemoryQueue>();
 
             return services;
         }
