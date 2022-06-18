@@ -1,5 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection.Extensions;
-using SimpleQueue.Abstractions;
+﻿using SimpleQueue.Abstractions;
 using SimpleQueue.InMemory;
 using System;
 

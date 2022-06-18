@@ -1,4 +1,5 @@
-﻿using SimpleQueue.Abstractions.Models;
+﻿using Microsoft.Extensions.DependencyInjection;
+using SimpleQueue.Abstractions.Models;
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -13,10 +14,18 @@ namespace SimpleQueue.Abstractions
 
         void Consume<T>(
             int maxAttempts,
-            Action<T> configureWorker,
-            CancellationToken cancellationToken)
+            IServiceScope scope = null,
+            CancellationToken cancellationToken = default)
             where T : ISimpleQueueWorker;
 
+        /// <summary>
+        /// Works in queue
+        /// </summary>
         int Count { get; }
+
+        /// <summary>
+        /// Returns true if there is at least one worker processing a work
+        /// </summary>
+        bool IsWorking { get; }
     }
 }

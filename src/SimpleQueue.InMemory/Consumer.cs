@@ -4,7 +4,6 @@ using SimpleQueue.Abstractions;
 using SimpleQueue.Abstractions.Exceptions;
 using SimpleQueue.Abstractions.Models;
 using System;
-using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -12,35 +11,41 @@ namespace SimpleQueue.InMemory
 {
     internal class Consumer
     {
+        private readonly IServiceProvider serviceProvider;
         private readonly ILogger<Consumer> logger;
         private int consumerId;
 
-        public Consumer(ILogger<Consumer> logger)
+        public Consumer(IServiceProvider serviceProvider)
         {
-            this.logger = logger
-                ?? throw new ArgumentNullException(nameof(logger));
+            this.serviceProvider = serviceProvider
+                ?? throw new ArgumentNullException(nameof(serviceProvider));
+
+            logger = serviceProvider.GetRequiredService<ILogger<Consumer>>();
         }
 
         public async Task Execute<T>(
             ConsumerContext<T> context,
-            IServiceProvider serviceProvider,
             CancellationToken cancellationToken)
             where T : ISimpleQueueWorker
         {
-            this.consumerId = context.ConsumerId;
+            consumerId = context.ConsumerId;
 
             if (logger.IsEnabled(LogLevel.Debug))
                 logger.LogDebug($"Consumer {consumerId} has started");
 
-            foreach (var work in context.Queue.GetConsumingEnumerable(cancellationToken))
+            foreach (var work in context.Queue.KeepReading(cancellationToken))
             {
-                // When some work is available, we create a new scope and ask
-                // service provider for a Worker instance (and its dependencies).
-                // This scope is valid for this work execution only.
-                using var scope = serviceProvider.CreateScope();
-                var worker = scope.ServiceProvider.GetRequiredService<T>();
-                context.ConfigureWorker?.Invoke(worker);
-                await Execute(work, worker, context.Queue, context.MaxAttempts, cancellationToken);
+                try
+                {
+                    context.Queue.IncrementWorking();
+                    using var scope = serviceProvider.CreateScope();
+                    var worker = (context.Scope ?? scope).ServiceProvider.GetRequiredService<T>();
+                    await Execute(work, worker, context.Queue, context.MaxAttempts, cancellationToken);
+                }
+                finally
+                {
+                    context.Queue.DecrementWorking();
+                }
             }
 
             if (logger.IsEnabled(LogLevel.Debug))
@@ -50,13 +55,12 @@ namespace SimpleQueue.InMemory
         private async Task Execute(
             Work work,
             ISimpleQueueWorker worker,
-            BlockingCollection<Work> queue,
+            InMemoryQueue queue,
             int maxAttempts,
             CancellationToken cancellationToken)
         {
             // We catch whatever exception occured while attempting to
-            // execute work and handle it. Note that consumer dedicated thread
-            // dies if an exception bubbles up.
+            // execute work and handle it.
             try
             {
                 await Attempt(work, worker, queue, cancellationToken);
@@ -70,6 +74,10 @@ namespace SimpleQueue.InMemory
                 if (logger.IsEnabled(LogLevel.Debug))
                     logger.LogDebug(ex.Message);
             }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 HandleFailure(work, queue, maxAttempts, ex);
@@ -79,7 +87,7 @@ namespace SimpleQueue.InMemory
         private async Task Attempt(
             Work work,
             ISimpleQueueWorker worker,
-            BlockingCollection<Work> queue,
+            InMemoryQueue queue,
             CancellationToken cancellationToken)
         {
             var action = work.Attempted ? "retrying" : "processing";
@@ -98,7 +106,7 @@ namespace SimpleQueue.InMemory
 
         private void HandleFailure(
             Work work,
-            BlockingCollection<Work> queue,
+            InMemoryQueue queue,
             int maxAttempts,
             Exception ex)
         {
